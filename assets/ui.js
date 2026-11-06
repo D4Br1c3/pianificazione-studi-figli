@@ -427,7 +427,10 @@
         if (result) download(app.resultCsv(state, result), 'text/csv;charset=utf-8', 'piano-studi-flussi.csv');
         return;
       case 'print':
-        if (result) window.print();
+        if (result) {
+          app.report(state, result);
+          window.print();
+        }
         return;
     }
 
