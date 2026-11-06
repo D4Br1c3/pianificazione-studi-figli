@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#102a38">
+  <meta name="description" content="Pianifica le spese scolastiche dei figli. Confronta PAC, riserva e ladder con flussi per anno, stress e rischio di scoperto.">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data:; worker-src 'self' blob:; base-uri 'none'; form-action 'none'">
+  <title>Pianificazione studi figli</title>
+  <link rel="icon" href="assets/mark.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/state.js"></script>
+  <script defer src="assets/calendar.js"></script>
+  <script defer src="assets/engine.js"></script>
+  <script defer src="assets/files.js"></script>
+  <script defer src="assets/dashboard.js"></script>
+  <script defer src="assets/ui.js"></script>
+</head>
+<body>
+  <a class="skip" href="#panoramica">Vai ai risultati</a>
+  <header class="site-header">
+    <div class="frame header-content">
+      <a class="brand" href="#panoramica">
+        <img src="assets/mark.svg" alt="" width="38" height="38">
+        <span>Piano Studi<small>Laboratorio di pianificazione</small></span>
+      </a>
+      <nav aria-label="Sezioni">
+        <a href="#panoramica">Panoramica</a>
+        <a href="#strategie">Strategie</a>
+        <a href="#flussi">Flussi</a>
+        <a href="#ipotesi">Ipotesi</a>
+      </nav>
+      <div class="header-actions">
+        <button class="button secondary small" type="button" data-action="import">Importa</button>
+        <button class="button secondary small" type="button" data-action="print" disabled>Stampa / PDF</button>
+      </div>
+    </div>
+  </header>
+
+  <main class="frame" id="panoramica">
+    <section class="hero" aria-labelledby="page-title">
+      <div class="hero-content">
+        <span class="eyebrow">PIANIFICAZIONE FINANZIARIA FAMILIARE</span>
+        <h1 id="page-title">Pianificazione<br class="desktop-break"> studi figli</h1>
+        <p>Dalla prima retta all’università. Esplora le scadenze, misura lo scoperto e confronta quattro modi di finanziare gli studi.</p>
+        <div class="hero-actions">
+          <a class="button light" href="#ipotesi">Configura il piano <span aria-hidden="true">↓</span></a>
+          <span class="hero-meta"><span class="signal"></span> Calcolo locale nel browser</span>
+        </div>
+      </div>
+      <div class="hero-aside">
+        <div class="hero-art" aria-hidden="true">
+          <svg viewBox="0 0 385 174" fill="none">
+            <path d="M0 36h385M0 69h385M0 102h385M0 135h385M55 9v147M123 9v147M191 9v147M259 9v147M327 9v147" stroke="#31505b"/>
+            <path d="M7 142H65V126H118V106H171V90H224V66H277V43H330V21H377V152H7Z" fill="#2a6e70" fill-opacity=".23"/>
+            <path d="M7 142H65V126H118V106H171V90H224V66H277V43H330V21H377" stroke="#80e3d1" stroke-width="2.5" stroke-linejoin="round"/>
+            <path d="M7 145C46 136 76 138 108 129S151 106 181 111S238 116 264 86S316 74 337 58S367 52 377 44" stroke="#f2b86e" stroke-width="1.8" stroke-dasharray="5 6"/>
+            <g fill="#9debdc"><circle cx="118" cy="106" r="4"/><circle cx="224" cy="66" r="4"/><circle cx="330" cy="21" r="4"/></g>
+          </svg>
+        </div>
+        <div id="hero-date" class="hero-date"></div>
+      </div>
+    </section>
+    <details class="notice" open>
+      <summary>Simulazioni didattiche · Avvertenze MiFID II</summary>
+      <p id="disclaimer"></p>
+    </details>
+
+    <section class="metrics" id="metrics" aria-label="Indicatori principali"></section>
+
+    <section class="panel fan-panel" aria-labelledby="fan-title">
+      <div class="panel-head fan-head">
+        <div><span class="eyebrow">DISTRIBUZIONE DEGLI ESITI</span><h2 id="fan-title">Capitale nel tempo</h2>
+          <p>Il cono di Ibbotson mostra i percentili del saldo a ciascuna data, dopo il pagamento.</p></div>
+        <div id="selectors" class="selectors"></div>
+      </div>
+      <div class="runbar">
+        <button class="button primary" type="button" data-action="run">Simula il piano</button>
+        <button class="button secondary small" type="button" data-action="cancel" hidden>Interrompi</button>
+        <progress id="progress" max="1" value="0" aria-label="Avanzamento della simulazione" hidden></progress>
+        <span id="run-status" role="status" aria-live="polite"></span>
+      </div>
+      <div id="fan"></div>
+    </section>
+
+    <section id="strategie" class="section" aria-labelledby="strategy-title">
+      <div class="section-head"><span class="eyebrow">STESSE RISORSE, QUATTRO STRATEGIE</span><h2 id="strategy-title">Strategie e scenari</h2>
+        <p>Il successo richiede che il portafoglio paghi la sua quota a ogni scadenza. VaR ed ES misurano gli scoperti cumulati in euro di oggi.</p></div>
+      <div class="strategy-layout">
+        <div class="panel" id="comparison"></div>
+        <div class="panel" id="strategy-notes"></div>
+      </div>
+      <div class="panel spaced" id="ladder"></div>
+    </section>
+
+    <section id="flussi" class="section" aria-labelledby="flows-title">
+      <div class="section-head"><span class="eyebrow">BILANCIO FAMILIARE</span><h2 id="flows-title">Scadenze e flussi</h2>
+        <p>Leggi il costo nominale residuo, l’impegno sul reddito familiare e la quota affidata al portafoglio.</p></div>
+      <div class="panel" id="cashflows"></div>
+      <div class="panel spaced" id="year-detail"></div>
+    </section>
+
+    <section id="ipotesi" class="section" aria-labelledby="inputs-title">
+      <div class="section-head"><span class="eyebrow">PARAMETRI MODIFICABILI</span><h2 id="inputs-title">Costruisci il tuo piano</h2>
+        <p>La sessione iniziale contiene due figli e due genitori di fantasia. Le ipotesi si possono esportare e ripristinare sul dispositivo.</p></div>
+      <form id="settings" novalidate>
+        <div id="plan-settings" class="settings-grid"></div>
+        <div class="panel spaced household-panel">
+          <div class="panel-head"><div><h3>Genitori e reddito</h3><p>Reddito netto attuale e crescita reale per ciascun genitore.</p></div>
+            <button class="button secondary small" type="button" data-action="add-parent">Aggiungi genitore</button></div>
+          <div id="parents" class="family-grid"></div>
+        </div>
+        <div class="panel spaced household-panel">
+          <div class="panel-head"><div><h3>Figli e studi</h3><p>Costi in euro di oggi per figlio e ciclo. La spunta include la spesa nel piano.</p></div>
+            <button class="button secondary small" type="button" data-action="add-child">Aggiungi figlio</button></div>
+          <div id="children" class="family-grid"></div>
+        </div>
+        <div class="runbar form-end">
+          <button class="button primary" type="button" data-action="run">Simula il piano</button>
+          <span id="form-status" role="status"></span>
+        </div>
+      </form>
+    </section>
+
+    <section id="files" class="section files" aria-labelledby="files-title">
+      <div class="section-head"><span class="eyebrow">SESSIONE E REPORT</span><h2 id="files-title">Importa ed esporta</h2></div>
+      <div class="panel file-panel">
+        <div id="dropzone" class="dropzone">
+          <strong>Trascina qui un JSON o un CSV di ipotesi</strong>
+          <span>Il file sostituisce la sessione corrente dopo la validazione.</span>
+          <button class="button secondary small" type="button" data-action="import">Scegli un file</button>
+          <input type="file" id="file-input" accept=".json,.csv,application/json,text/csv" hidden>
+        </div>
+        <div class="exports">
+          <button class="button secondary" type="button" data-action="json">Esporta sessione JSON</button>
+          <button class="button secondary" type="button" data-action="assumptions">Esporta ipotesi CSV</button>
+          <button class="button secondary" type="button" data-action="results" disabled>Esporta tutti i flussi CSV</button>
+          <button class="button secondary" type="button" data-action="print" disabled>Stampa scheda A4</button>
+        </div>
+        <p id="file-status" role="status"></p>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="frame footer-content">
+      <span>Piano Studi · Simulatore didattico, v1.0</span>
+      <a href="https://github.com/D4Br1c3/pianificazione-studi-figli/blob/main/docs/METODOLOGIA.md">Metodologia e formule ↗</a>
+    </div>
+  </footer>
+  <article id="print-report" class="print-only"></article>
+  <noscript>Per usare questo simulatore, abilita JavaScript nel browser.</noscript>
+</body>
+</html>
