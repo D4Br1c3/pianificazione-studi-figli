@@ -65,8 +65,34 @@
     return 'master';
   }
 
-  function projectChild(child, schedule, year, start, plan, shockInflation) {
-    const stage = stageAt(child, schedule, year);
+  function withdrawalYearFor(child, schedule, plan) {
+    if (plan.withdrawalMode === 'first') return schedule.academic;
+    if (plan.withdrawalMode === 'year') return plan.withdrawalYear;
+    switch (plan.withdrawalStage) {
+      case 'primary': return schedule.primary;
+      case 'middle': return schedule.primary + 5;
+      case 'high': return schedule.primary + 8;
+      case 'university': return child.bachelorYears + child.masterYears > 0 ? schedule.firstUniversity : null;
+      case 'master': return child.masterYears > 0 ? schedule.firstUniversity + child.bachelorYears : null;
+      default:
+        if (!child.stages[plan.withdrawalStage].enabled) return null;
+        for (let year = schedule.year; year < schedule.primary; year++) {
+          if (stageAt(child, schedule, year) === plan.withdrawalStage) return year;
+        }
+        return null;
+    }
+  }
+
+  function withdrawalLabel(plan) {
+    if (plan.withdrawalMode === 'year') return 'Dall’anno scolastico ' + academicLabel(plan.withdrawalYear);
+    if (plan.withdrawalMode === 'stage') {
+      const stage = app.WITHDRAWAL_STAGES.find(([id]) => id === plan.withdrawalStage)[1];
+      return 'Per ogni figlio · ' + stage;
+    }
+    return 'Dalla prima spesa residua';
+  }
+
+  function projectChild(child, schedule, stage, year, start, plan, shockInflation) {
     const setting = stage && child.stages[stage];
     if (!setting?.enabled) return null;
     let originalDue = schoolDue(year, plan.payMonth);
@@ -101,6 +127,7 @@
     const income = parent.income * Math.pow(1 + (parent.realGrowth + inflation) / 100, time) * replacement;
     return {
       age: ageAt(born, reference), income, adjusted,
+      retirementInYear: retirement > start && retirement >= open && retirement < end ? retirement : null,
       pensionWindow: open < plusMonths(born, 71 * 12) && end > plusMonths(born, 67 * 12)
     };
   }
@@ -110,11 +137,15 @@
     const start = parseDay(state.startDate);
     const firstYear = academicYear(start);
     const schedules = children.map(child => childSchedule(child, start));
+    const withdrawals = children.map((child, index) => ({
+      fromYear: withdrawalYearFor(child, schedules[index], plan), firstDue: null
+    }));
     const lastPossible = Math.max(firstYear, ...schedules.map(schedule => schedule.end));
     const extraInflation = scenario === 'shock' ? plan.stressInflation : 0;
     const rows = [];
     let lastIncluded = 0;
     let firstUniversityDue = null;
+    let firstWithdrawal = null;
     let cumTarget = 0;
     let cumTargetReal = 0;
 
@@ -124,13 +155,19 @@
       const close = date(year + 1, 9);
       const profiles = parents.map(parent => parentYear(parent, open, start, close, reference, plan.inflation));
       const income = profiles.reduce((total, profile) => total + profile.income, 0);
-      const people = children.map((child, index) => projectChild(child, schedules[index], year, start, plan, extraInflation));
-      const chronological = people.filter(Boolean).sort((a, b) => a.due - b.due);
+      const students = children.map((child, index) => ({
+        age: ageAt(schedules[index].birth, reference),
+        stage: stageAt(child, schedules[index], year)
+      }));
+      const people = children.map((child, index) =>
+        projectChild(child, schedules[index], students[index].stage, year, start, plan, extraInflation));
+      const chronological = people.flatMap((person, index) => person ? [{ person, index }] : [])
+        .sort((a, b) => a.person.due - b.person.due);
       const flows = [];
       let remainingIncome = income * plan.incomeShare / 100;
       let today = 0, gross = 0, aid = 0, net = 0, university = 0, incomePaid = 0, outside = 0, target = 0, targetReal = 0;
 
-      for (const person of chronological) {
+      for (const { person, index } of chronological) {
         today += person.today;
         gross += person.gross;
         aid += person.aid;
@@ -139,7 +176,8 @@
           university += person.net;
           if (person.net > 0 && firstUniversityDue === null) firstUniversityDue = person.due;
         }
-        if (plan.scope === 'all' || person.university) {
+        const withdrawal = withdrawals[index];
+        if (withdrawal.fromYear !== null && year >= withdrawal.fromYear) {
           person.incomePaid = Math.min(remainingIncome, person.net);
           remainingIncome -= person.incomePaid;
           person.target = person.net - person.incomePaid;
@@ -151,6 +189,8 @@
         target += person.target;
         targetReal += person.target / Math.pow(1 + plan.inflation / 100, yearsBetween(start, person.due));
         if (person.target > 0) {
+          withdrawal.firstDue ??= person.due;
+          firstWithdrawal ??= person.due;
           const latest = flows.at(-1);
           if (latest?.day === person.due) latest.amount += person.target;
           else flows.push({ day: person.due, amount: person.target });
@@ -158,14 +198,14 @@
       }
 
       if (chronological.length) lastIncluded = rows.length;
-      const report = Math.max(reference, ...chronological.map(person => person.due));
+      const report = Math.max(reference, ...chronological.map(({ person }) => person.due));
       const burden = income > 0 ? net / income : null;
       const inWindow = net > 0 && profiles.some(profile => profile.pensionWindow);
       const warning = inWindow ? (university > 0 || burden === null || burden >= 0.25 ? 'red' : 'amber') : null;
       cumTarget += target;
       cumTargetReal += targetReal;
       rows.push({
-        year, label: academicLabel(year), report, reference, profiles, income, people, flows, warning,
+        year, label: academicLabel(year), report, reference, profiles, students, income, people, flows, warning,
         today, gross, aid, net, university, incomePaid, outside, target, targetReal, cumTarget, cumTargetReal, burden
       });
     }
@@ -174,7 +214,7 @@
     for (const key of ['today', 'gross', 'aid', 'net', 'university', 'incomePaid', 'outside', 'target', 'targetReal']) {
       totals[key] = rows.reduce((sum, row) => sum + row[key], 0);
     }
-    return { start, rows, totals, firstUniversityDue, end: rows.at(-1).report };
+    return { start, rows, totals, firstUniversityDue, firstWithdrawal, withdrawals, end: rows.at(-1).report };
   }
 
   function contributionDates(state, start, end) {
@@ -198,6 +238,6 @@
 
   Object.assign(app, {
     date, parseDay, isoDay, yearOf, monthOf, yearsBetween, academicYear, academicLabel, ageAt,
-    childSchedule, buildCalendar, contributionDates
+    childSchedule, withdrawalLabel, buildCalendar, contributionDates
   });
 })(globalThis.StudyPlan);

@@ -1,48 +1,40 @@
 # Pianificazione studi figli
 
-Simulatore didattico in italiano per stimare le spese scolastiche, confrontare quattro strategie di finanziamento e misurare il rischio di scoperto. Funziona interamente nel browser con un Web Worker, grafici SVG e JavaScript senza librerie esterne.
+Simulatore didattico per stimare le spese scolastiche di ogni figlio, valutare quanto pesano sul reddito familiare e confrontare quattro strategie di finanziamento. Si usa nel browser. Il calcolo avviene sul dispositivo.
 
-**[Apri su GitHub Pages](https://d4br1c3.github.io/pianificazione-studi-figli/)** dopo l’attivazione della pubblicazione del repository.
+**[Apri il simulatore](https://d4br1c3.github.io/pianificazione-studi-figli/)**
 
-> **Simulazioni didattiche.** Il servizio non presta consulenza in materia di investimenti ai sensi MiFID II, non valuta l’adeguatezza e non raccomanda strumenti o operazioni. Gli esiti dipendono dalle ipotesi e possono includere perdite anche rilevanti. I rendimenti passati non garantiscono quelli futuri.
+## Imposta il piano
 
-## Come usarlo
+1. Indica date di nascita, redditi netti, costi e agevolazioni. Il calendario applica l’inflazione e segnala gli anni in cui le spese coincidono con la fascia pensionistica di ciascun genitore.
+2. Scegli quando il portafoglio inizia a finanziare le spese. Puoi partire dalla prima spesa residua, da un anno scolastico comune o dall’ingresso di ciascun figlio in un determinato ciclo.
+3. Imposta capitale iniziale, rate del piano di accumulo (PAC), mercato e scenari. I box delle strategie spiegano come il capitale viene investito e utilizzato alle scadenze.
+4. Controlla il riepilogo e seleziona **Simula il piano**. Puoi esplorare gli esiti Base, Bear, Bull e stress universitario con le stesse risorse iniziali per tutte le strategie.
 
-1. In **Ipotesi** inserisci le date di nascita, i redditi netti e i costi di ciascun figlio. Le spese dei cicli esclusi scompaiono dal budget. Per le rate già scadute nell’anno scolastico in corso, indica la percentuale ancora da pagare.
-2. Scegli **tutti i cicli** o **solo università** come mandato del portafoglio. Indica l’eventuale quota di reddito già destinata alle rette. Il PAC e i costi fuori mandato restano voci distinte nel bilancio familiare.
-3. Imposta il capitale disponibile oggi e la rata PAC. I profili iniziali hanno un equivalente di **250 €** e **500 €** al mese. A parità di budget, la rata effettiva è mensile, trimestrale o in due parti nel mese. Le strategie usano sempre le stesse risorse.
-4. Seleziona la curva **BTP a gradini** del progetto oppure un YTM **flat** modificabile, inizialmente 3,50%. La ladder è sintetica. La tabella distingue capitale teorico, capitale impiegato e incassi alle singole scadenze.
-5. Premi **Simula il piano**. Cambia strategia o scenario per esplorare i risultati. Il pannello **Scadenze e flussi** mostra costi, quota da reddito, età, alert pensione, versamenti, scoperti e saldi.
+## Leggi i risultati
 
-| Indicatore | Come leggerlo |
+| Indicatore | Interpretazione |
 | --- | --- |
-| Successo | Quota dei percorsi in cui il portafoglio paga interamente la propria quota a ogni data. |
-| VaR 95 e 99 | Soglia empirica degli scoperti cumulati, riportati in euro di oggi. |
-| ES 95 e 99 | Scoperto medio rispettivamente del peggior 5% e 1% dei percorsi. |
-| Cono P5–P95 | Distribuzione del saldo dopo le spese a ogni rilevazione. La linea tratteggiata somma il target dei pagamenti fino a quel punto. |
-| Scoperto P95 / reddito | Quota del reddito netto annuo che servirebbe a coprire lo scoperto al P95 in quell’anno. Con reddito zero, il rapporto è N.D. |
-| Saldo liquidabile | Valore di vendita netto del comparto azionario più la riserva liquida. Il saldo del cono include anche il valore contabile della ladder. |
+| Probabilità di copertura | Quota dei percorsi in cui tutte le spese affidate al portafoglio sono pagate alla data prevista. |
+| Scoperto | Quota della spesa assegnata al portafoglio rimasta da pagare alla scadenza. |
+| VaR 95% e 99% | Soglia dello scoperto cumulato che separa il 5% e l’1% dei percorsi peggiori, in euro di oggi. |
+| ES 95% e 99% | Scoperto medio nel peggior 5% e 1% dei percorsi, in euro di oggi. |
+| Saldo dopo i pagamenti | Distribuzione del capitale residuo a ogni data. P50 è la mediana. La fascia P5–P95 contiene il 90% centrale. |
+| Scoperto P95 / reddito | Risorse aggiuntive necessarie al livello P95 in un anno, come quota del reddito netto familiare. Con reddito zero il rapporto è N.D. |
+| Capitale liquidabile | Riserva disponibile e valore netto di liquidazione del comparto azionario. Il saldo complessivo include anche il valore contabile della ladder. |
 
-La sessione iniziale usa anagrafiche di fantasia, inflazione del 2%, rendimento azionario lordo del 6%, volatilità browniana del 15% e 10.000 percorsi per scenario. Con capitale iniziale zero, le due ladder coincidono con il PAC azionario. Il confronto dei tre Sharpe riguarda l’asset. I dettagli sono nella [metodologia](docs/METODOLOGIA.md).
+## File e stampa
 
-## Sessioni e report
+- **JSON e CSV di ipotesi** conservano le informazioni del piano, la regola dei prelievi e il campione. L’importazione ripristina le ipotesi. La simulazione si avvia dal pulsante.
+- **CSV dei flussi** contiene le righe per anno, strategia e scenario, le spese per figlio, le età, i redditi e gli esiti simulati.
+- **Stampa / PDF** apre una scheda A4 con il grafico del saldo, il confronto delle strategie e gli anni di maggiore spesa.
 
-- **JSON** conserva anagrafiche, configurazione, pesi, seed e vista selezionata. Reimportalo dal pulsante o trascinalo nella zona di caricamento per rigenerare i risultati.
-- **CSV delle ipotesi** usa separatore punto e virgola, numeri con virgola decimale e intestazione `ambito;campo;valore`. Modifica `valore` mantenendo sezioni, chiavi e versione. Le date sono in formato `AAAA-MM-GG`. Le opzioni logiche accettano `vero` e `falso`. Il CSV rappresenta l’intera sessione.
-- **CSV dei flussi** include ogni coppia strategia/scenario, con importi per figlio, genitore, anno e misure di rischio. Percentuali e importi sono numeri. I campi vuoti indicano voci non applicabili. Questa esportazione serve all’analisi tabellare.
-- **Stampa / PDF** apre la scheda A4 del browser. Seleziona **Salva come PDF** per conservarla. La scheda include il cono, le misure di coda e gli anni più onerosi dello scenario attivo.
+Il CSV delle ipotesi usa la virgola decimale, il punto e virgola come separatore e le date `AAAA-MM-GG`. La sessione è salvabile tramite esportazione. I file scaricati possono contenere nomi, date di nascita e redditi.
 
-I dati rimangono nella pagina fino alla chiusura. I file esportati possono contenere nomi, date di nascita e redditi. Custodiscili come documenti familiari.
+## Modello e codice
 
-## Pubblicazione
+La [metodologia](docs/METODOLOGIA.md) descrive il calendario, le regole di prelievo, la curva dei tassi, il processo dei rendimenti, l’allocazione e le misure di rischio. Discuti eventuali problemi nel [tracker del progetto](https://github.com/D4Br1c3/pianificazione-studi-figli/issues).
 
-Da **Settings → Pages**, seleziona **Deploy from a branch → main → / (root)** e salva. `index.html` è l’entry point. `.nojekyll` permette a Pages di servire direttamente i file statici. L’app richiede soltanto un browser moderno. Se si apre `index.html` da una copia locale completa, il calcolo usa un fallback a blocchi nella pagina.
+Applicazione statica con entry point `index.html`, codice JavaScript e un Web Worker per la simulazione. Per eseguire i test del motore si usa `node --test` con Node.js 22 o successivo.
 
-Per sviluppo e verifiche, esegui `node --test` dalla radice con Node.js 22 o successivo. I test coprono calendario, flussi, scenari deterministici, fiscalità, rischio e round trip dei file.
-
-## Documentazione
-
-- [Metodologia, formule e fonti](docs/METODOLOGIA.md)
-- [Revisione critica del foglio](docs/REVISIONE.md)
-- [Checklist di sviluppo e collaudo](https://github.com/D4Br1c3/pianificazione-studi-figli/issues/1)
-- [Metodologia del progetto PAC](https://github.com/D4Br1c3/pac-montecarlo-simulator/blob/main/docs/METODOLOGIA.md)
+> **Simulazioni didattiche.** Il servizio non presta consulenza in materia di investimenti ai sensi MiFID II. Gli esiti dipendono dalle ipotesi e possono includere perdite. I rendimenti passati non garantiscono quelli futuri.

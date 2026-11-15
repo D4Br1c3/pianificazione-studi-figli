@@ -72,12 +72,57 @@ test('alert per intersezione d’anno e reddito sostitutivo alla data di riferim
   Object.assign(state.parents[0], { realGrowth: 0, retirementAge: 67, replacement: 50 });
   const [current, next] = app.buildCalendar(state).rows;
   assert.equal(current.profiles[0].age, 66);
+  assert.equal(app.isoDay(current.profiles[0].retirementInYear), '2026-11-01');
   assert.equal(current.warning, 'amber');
   assert.equal(current.income, 10000);
   assert.equal(next.income, 5000);
   assert.equal(next.profiles[0].age, 67);
+  assert.equal(next.profiles[0].retirementInYear, null);
   state.parents[0].birth = '1950-11-01';
   assert.equal(app.buildCalendar(state).rows[0].income, 10000);
+});
+
+test('l’anno comune apre il finanziamento per tutti dalla prima scadenza dell’anno scolastico', () => {
+  const state = oneChild('2026-11-15', '2014-11-05', ['middle', 'high', 'bachelor', 'master']);
+  state.children.push(app.newChild(2, '2017-04-15'));
+  state.parents.forEach(parent => Object.assign(parent, { income: 2000, realGrowth: 0 }));
+  Object.assign(state.plan, { payMonth: 1, incomeShare: 10, withdrawalMode: 'year', withdrawalYear: 2029 });
+  const calendar = app.buildCalendar(state);
+  const open = calendar.rows.find(row => row.year === 2029);
+  assert.equal(app.isoDay(calendar.firstWithdrawal), '2030-01-01');
+  assert.deepEqual(calendar.withdrawals.map(item => item.firstDue), [open.reference, open.reference]);
+  assert.ok(calendar.rows.filter(row => row.year < 2029).every(row => row.target === 0 && row.incomePaid === 0 && row.net === row.outside));
+  assert.equal(open.net, 2000);
+  assert.equal(open.incomePaid, 400);
+  assert.equal(open.target, 1600);
+  assert.ok(app.ladderCost(calendar, state.plan).every(cost => cost.year >= 2029));
+});
+
+test('la magistrale apre i prelievi sul calendario individuale e gestisce un ciclo assente', () => {
+  const state = oneChild('2026-11-15', '2014-11-05', ['high', 'bachelor', 'master']);
+  const second = app.newChild(2, '2017-04-15');
+  Object.assign(second, { primaryEarly: true, universityDelay: 1 });
+  state.children.push(second);
+  Object.assign(state.plan, { withdrawalMode: 'stage', withdrawalStage: 'master' });
+  let calendar = app.buildCalendar(state);
+  assert.deepEqual(calendar.withdrawals.map(item => item.fromYear), [2036, 2039]);
+  assert.deepEqual(calendar.withdrawals.map(item => app.isoDay(item.firstDue)), ['2036-09-01', '2039-09-01']);
+  assert.equal(app.isoDay(calendar.firstUniversityDue), '2033-09-01');
+  const overlap = calendar.rows.find(row => row.year === 2036);
+  assert.equal(overlap.people[0].target, 5000);
+  assert.equal(overlap.people[1].outside, 5000);
+  second.masterYears = 0;
+  calendar = app.buildCalendar(state);
+  assert.deepEqual(calendar.withdrawals[1], { fromYear: null, firstDue: null });
+  assert.ok(calendar.rows.every(row => !row.people[1]?.target));
+});
+
+test('l’età alla data di riferimento resta visibile quando la spesa di un figlio è esclusa', () => {
+  const state = oneChild('2026-09-01', '2017-10-01', ['primary']);
+  state.children[0].stages.primary.enabled = false;
+  const row = app.buildCalendar(state).rows[0];
+  assert.equal(row.people[0], null);
+  assert.deepEqual(row.students[0], { age: 8, stage: 'primary' });
 });
 
 test('la frequenza modifica importi e date preservando il budget annuale', () => {
@@ -178,6 +223,7 @@ test('round trip JSON e CSV, apostrofi e protezione da formule', () => {
   state.parents[0].name = "'nome";
   state.children[1].name = 'Due\nrighe';
   state.plan.pac = 340.125;
+  Object.assign(state.plan, { withdrawalMode: 'year', withdrawalYear: 2034, withdrawalStage: 'high' });
   state.view.year = 2034;
   state.view.scenario = 'shock';
   const text = app.assumptionsCsv(state);
@@ -190,6 +236,32 @@ test('round trip JSON e CSV, apostrofi e protezione da formule', () => {
   assert.throws(() => app.readAssumptions(text + 'piano;pac;1\n'), /duplicato/);
 });
 
+test('i file della versione 1 conservano la scelta di quali spese finanziare', () => {
+  const state = oneChild('2026-05-01', '2010-04-15', ['high', 'master']);
+  state.children[0].bachelorYears = 0;
+  state.plan.lump = 1000;
+  state.plan.curve = 'steps';
+  const old = structuredClone(state);
+  old.version = 1;
+  old.plan.curve = 'btp';
+  delete old.plan.withdrawalMode;
+  delete old.plan.withdrawalYear;
+  delete old.plan.withdrawalStage;
+  const csv = app.assumptionsCsv(state).replace('meta;versione;2', 'meta;versione;1').replace('piano;curve;steps', 'piano;curve;btp')
+    .replace(/^piano;withdrawal\w+;[^\r\n]+\r\n/gm, '');
+  for (const scope of ['all', 'university']) {
+    old.plan.scope = scope;
+    const imported = app.readSession(JSON.stringify({ format: 'pianificazione-studi-figli', state: old }));
+    assert.deepEqual(app.readAssumptions(csv + 'piano;scope;' + scope + '\r\n'), imported);
+    assert.equal(imported.version, 2);
+    assert.equal(imported.plan.curve, 'steps');
+    assert.equal(imported.plan.lump, 1000);
+    assert.equal(imported.plan.withdrawalMode, scope === 'all' ? 'first' : 'stage');
+    const calendar = app.buildCalendar(imported);
+    assert.equal(app.isoDay(calendar.firstWithdrawal), scope === 'all' ? '2026-09-01' : '2029-09-01');
+  }
+});
+
 test('senza figli e senza reddito resta una riga con misure definite', async () => {
   const state = app.defaultState('2026-11-06');
   state.children = [];
@@ -198,8 +270,10 @@ test('senza figli e senza reddito resta una riga con misure definite', async () 
   const result = await app.simulate(state);
   assert.equal(result.base.rows.length, 1);
   assert.equal(result.base.rows[0].burden, null);
-  assert.equal(result.scenarios.base.equity.success, 1);
+  assert.equal(result.scenarios.base.equity.success, null);
+  assert.equal(result.scenarios.base.equity.loss95.es, 0);
   const exported = app.resultCsv(state, result);
   assert.match(exported, /MiFID II/);
+  assert.match(exported, /prima_spesa_del_portafoglio/);
   assert.equal(exported.trim().split('\n').length, 17);
 });

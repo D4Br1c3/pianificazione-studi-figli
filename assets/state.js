@@ -1,7 +1,7 @@
 (function (app) {
   'use strict';
 
-  const VERSION = 1;
+  const VERSION = 2;
   const MAX_CHILDREN = 20;
   const LIMITS = {
     cash: [0, 100000000], annualCost: [0, 1000000], growth: [-20, 30],
@@ -16,33 +16,59 @@
     { id: 'nursery', label: 'Nido', cost: 6600 },
     { id: 'spring', label: 'Sezione primavera', cost: 1000 },
     { id: 'infant', label: 'Scuola dell’infanzia', cost: 1000 },
-    { id: 'primary', label: 'Primaria', cost: 1000 },
-    { id: 'middle', label: 'Secondaria di I grado', cost: 1000 },
-    { id: 'high', label: 'Secondaria di II grado', cost: 1000 },
-    { id: 'bachelor', label: 'Università · primo ciclo', cost: 5000, university: true },
-    { id: 'master', label: 'Università · secondo ciclo', cost: 5000, university: true }
+    { id: 'primary', label: 'Scuola primaria', cost: 1000 },
+    { id: 'middle', label: 'Scuola media', cost: 1000 },
+    { id: 'high', label: 'Scuola superiore', cost: 1000 },
+    { id: 'bachelor', label: 'Università · primo percorso', cost: 5000, university: true },
+    { id: 'master', label: 'Università · laurea magistrale', cost: 5000, university: true }
   ];
   const STAGE_BY_ID = Object.fromEntries(STAGES.map(stage => [stage.id, stage]));
+  const WITHDRAWAL_MODES = [
+    ['first', 'Dalla prima spesa residua'],
+    ['year', 'Da un anno scolastico comune'],
+    ['stage', 'Dall’inizio di un ciclo per ogni figlio']
+  ];
+  const WITHDRAWAL_STAGES = [
+    ...STAGES.filter(stage => !stage.university).map(stage => [stage.id, stage.label]),
+    ['university', 'Primo anno di università'],
+    ['master', 'Primo anno di laurea magistrale']
+  ];
   const STRATEGIES = [
-    { id: 'equity', label: 'PAC azionario', short: 'PAC azionario', text: 'Il PAC e il capitale iniziale disponibile restano esposti all’azionario. Le spese richiedono vendite alle scadenze.' },
-    { id: 'motors', label: 'Due Motori', short: 'Due Motori', text: 'Una riserva di breve periodo viene alimentata con vendite azionarie fino al budget delle prossime scadenze. La riserva può ridurre le vendite durante un calo e limita la partecipazione ai rialzi.' },
-    { id: 'ladder', label: 'Ladder integrale', short: 'Ladder', text: 'Il capitale iniziale viene dedicato a scadenze sintetiche, a partire dalla prima. Il PAC finanzia la parte che resta scoperta dal piano a pronti.' },
-    { id: 'hybrid', label: 'Ladder ibrida', short: 'Ibrida', text: 'La ladder punta a coprire una quota di ogni pagamento. Il PAC e l’eventuale avanzo iniziale finanziano la parte residua, esposta al mercato.' }
+    {
+      id: 'equity', label: 'PAC azionario',
+      text: 'Capitale iniziale e versamenti in azionario. Alle scadenze si vendono le quote necessarie per pagare le spese.',
+      tradeoff: 'Un calo vicino a una scadenza può creare uno scoperto.'
+    },
+    {
+      id: 'motors', label: 'Due Motori',
+      text: 'Il portafoglio affianca all’azionario una riserva remunerata per le prossime spese. La riserva viene rivista ogni trimestre e si usa per prima.',
+      tradeoff: 'La riserva riduce le vendite durante i ribassi e limita la partecipazione ai rialzi.'
+    },
+    {
+      id: 'ladder', label: 'Ladder integrale',
+      text: 'Il capitale disponibile oggi finanzia una scala di incassi alle date delle spese. L’obiettivo è il 100% di ogni pagamento del portafoglio, a partire dalle scadenze più vicine.',
+      tradeoff: 'Richiede capitale subito. Il PAC contribuisce alle spese rimaste scoperte.'
+    },
+    {
+      id: 'hybrid', label: 'Ladder ibrida',
+      text: 'Si predispone un incasso per una quota di ciascun pagamento, per esempio il 50%. Il PAC e l’eventuale capitale iniziale residuo finanziano la parte rimanente.',
+      tradeoff: 'Impegna meno capitale all’avvio per completare la ladder. Una quota maggiore delle spese dipende dal mercato.'
+    }
   ];
   const SCENARIOS = [
-    { id: 'base', label: 'Base', description: 'Rendimento, rischio e costi impostati.' },
+    { id: 'base', label: 'Base', description: 'Usa le ipotesi di mercato e di spesa impostate.' },
     { id: 'bear', label: 'Bear', description: 'Rendimento atteso più basso e volatilità più alta per tutto il piano.' },
     { id: 'bull', label: 'Bull', description: 'Rendimento atteso più alto e volatilità più bassa per tutto il piano.' },
     { id: 'shock', label: 'Stress università', description: 'Ribasso alla prima retta universitaria del piano e crescita più rapida dei costi universitari.' }
   ];
   const BANDS = [
-    { label: '0–1 anni', max: 1, ytm: 2.50, reference: 'Liquidità di riferimento' },
-    { label: '1–3 anni', max: 3, ytm: 3.50, reference: '3 anni 3,628%' },
-    { label: '3–5 anni', max: 5, ytm: 3.75, reference: '3 anni 3,628% · 5 anni 3,942%' },
-    { label: '5–7 anni', max: 7, ytm: 4.00, reference: '5 anni 3,942% · 7 anni 4,150%' },
-    { label: '7–10 anni', max: 10, ytm: 4.25, reference: '7 anni 4,150% · 10 anni 4,424%' },
-    { label: '10–20 anni', max: 20, ytm: 4.50, reference: '10 anni 4,424% · 15 anni 4,728% · 20 anni 4,83%' },
-    { label: '20 anni e oltre', max: Infinity, ytm: 4.75, reference: '30 anni 4,996%' }
+    { label: 'Meno di 1 anno', max: 1, ytm: 2.50 },
+    { label: 'Da 1 a meno di 3 anni', max: 3, ytm: 3.50 },
+    { label: 'Da 3 a meno di 5 anni', max: 5, ytm: 3.75 },
+    { label: 'Da 5 a meno di 7 anni', max: 7, ytm: 4.00 },
+    { label: 'Da 7 a meno di 10 anni', max: 10, ytm: 4.25 },
+    { label: 'Da 10 a meno di 20 anni', max: 20, ytm: 4.50 },
+    { label: '20 anni e oltre', max: Infinity, ytm: 4.75 }
   ];
   const TAX = Object.freeze({ equity: 0.26, bond: 0.125 });
   const DISCLAIMER = 'Simulazioni didattiche e di pianificazione. Il servizio non presta consulenza in materia di investimenti ai sensi MiFID II, non valuta l’adeguatezza e non raccomanda operazioni o strumenti finanziari. Gli esiti dipendono dalle ipotesi, non sono previsioni o garanzie e possono includere perdite anche rilevanti. I rendimenti passati non garantiscono quelli futuri. Fiscalità e prezzi sono semplificati.';
@@ -81,11 +107,12 @@
       parents: [newParent(1, (year - 52) + '-03-18'), newParent(2, (year - 49) + '-10-20')],
       children: [newChild(1, (year - 8) + '-04-18'), newChild(2, (year - 5) + '-11-14')],
       plan: {
-        inflation: 2, uniPremium: 0, payMonth: 9, currentRemaining: 0, scope: 'all', incomeShare: 0,
+        inflation: 2, uniPremium: 0, payMonth: 9, currentRemaining: 0, incomeShare: 0,
+        withdrawalMode: 'first', withdrawalYear: year - Number(Number(startDate.slice(5, 7)) < 9), withdrawalStage: 'university',
         pac: 250, pacAlternative: 500, profile: 'standard', frequency: 12, timing: 'end', lump: 0,
         equityReturn: 6, volatility: 15, rf: 2.5, ter: 0.2, bollo: 0.2, orderFee: 0,
         jumps: true, jumpFrequency: 0.2, jumpMean: -18,
-        curve: 'btp', flat: 3.5, reserveYears: 5, reservePct: 100, hybridPct: 50,
+        curve: 'steps', flat: 3.5, reserveYears: 5, reservePct: 100, hybridPct: 50,
         bearReturn: 4, bearVol: 5, bullReturn: 3, bullVol: 3, stressInflation: 2, crash: 30,
         paths: 10000, seed: 1729
       },
@@ -132,7 +159,8 @@
   }
 
   function validateState(input) {
-    if (input?.version !== VERSION) throw Error('Versione delle ipotesi non supportata.');
+    const legacy = input?.version === 1;
+    if (!legacy && input?.version !== VERSION) throw Error('Versione delle ipotesi non supportata.');
     const startDate = checkDate(input.startDate, 'Data del piano');
     const startYear = Number(startDate.slice(0, 4));
     checkNumber(startYear, [1900, 2200], 'Anno del piano');
@@ -152,8 +180,8 @@
         name: checkName(parent.name, label), birth,
         income: checkNumber(parent.income, LIMITS.cash, label + ' · reddito'),
         realGrowth: checkNumber(parent.realGrowth, LIMITS.growth, label + ' · crescita reale'),
-        retirementAge: checkNumber(parent.retirementAge, LIMITS.retirementAge, label + ' · età del cambio reddito', true),
-        replacement: checkNumber(parent.replacement, LIMITS.pct, label + ' · reddito sostitutivo')
+        retirementAge: checkNumber(parent.retirementAge, LIMITS.retirementAge, label + ' · età ipotizzata per la pensione', true),
+        replacement: checkNumber(parent.replacement, LIMITS.pct, label + ' · quota di reddito dopo la pensione')
       };
     });
     const children = input.children.map((child, index) => {
@@ -184,15 +212,24 @@
         }))
       };
     });
-    const p = input.plan || {};
+    const p = { ...input.plan };
+    if (legacy) {
+      const scope = checkChoice(p.scope, ['all', 'university'], 'Spese a carico del portafoglio');
+      p.withdrawalMode = scope === 'all' ? 'first' : 'stage';
+      p.withdrawalYear = startYear - Number(Number(startDate.slice(5, 7)) < 9);
+      p.withdrawalStage = 'university';
+      if (p.curve === 'btp') p.curve = 'steps';
+    }
     const number = (key, bounds, label, integer) => checkNumber(p[key], LIMITS[bounds] || bounds, label, integer);
     const plan = {
       inflation: number('inflation', 'inflation', 'Inflazione'),
-      uniPremium: number('uniPremium', 'inflation', 'Extra inflazione universitaria'),
+      uniPremium: number('uniPremium', 'inflation', 'Inflazione aggiuntiva per l’università'),
       payMonth: checkChoice(p.payMonth, MONTHS.map(month => month[0]), 'Mese di pagamento'),
-      currentRemaining: number('currentRemaining', 'pct', 'Quota già scaduta ancora da pagare'),
-      scope: checkChoice(p.scope, ['all', 'university'], 'Perimetro del portafoglio'),
-      incomeShare: number('incomeShare', 'pct', 'Quota dal reddito'),
+      currentRemaining: number('currentRemaining', 'pct', 'Quota residua delle spese già scadute'),
+      incomeShare: number('incomeShare', 'pct', 'Quota di reddito destinata alle spese'),
+      withdrawalMode: checkChoice(p.withdrawalMode, WITHDRAWAL_MODES.map(([id]) => id), 'Quando iniziano i prelievi'),
+      withdrawalYear: number('withdrawalYear', [1899, 2300], 'Anno scolastico di avvio', true),
+      withdrawalStage: checkChoice(p.withdrawalStage, WITHDRAWAL_STAGES.map(([id]) => id), 'Ciclo di avvio dei prelievi'),
       pac: number('pac', 'cash', 'PAC standard'),
       pacAlternative: number('pacAlternative', 'cash', 'PAC alternativo'),
       profile: checkChoice(p.profile, ['standard', 'alternative'], 'Profilo PAC'),
@@ -208,19 +245,19 @@
       jumps: checkBoolean(p.jumps, 'Salti di mercato'),
       jumpFrequency: number('jumpFrequency', 'jumpFrequency', 'Frequenza dei salti'),
       jumpMean: number('jumpMean', 'jumpMean', 'Salto medio'),
-      curve: checkChoice(p.curve, ['flat', 'btp'], 'Curva obbligazionaria'),
-      flat: number('flat', 'rate', 'Rendimento flat'),
-      reserveYears: number('reserveYears', 'window', 'Orizzonte riserva', true),
-      reservePct: number('reservePct', 'pct', 'Quota Due Motori'),
-      hybridPct: number('hybridPct', 'pct', 'Quota ladder ibrida'),
+      curve: checkChoice(p.curve, ['flat', 'steps'], 'Modello dei tassi obbligazionari'),
+      flat: number('flat', 'rate', 'Tasso annuo lordo costante'),
+      reserveYears: number('reserveYears', 'window', 'Due Motori · prossimi anni da coprire', true),
+      reservePct: number('reservePct', 'pct', 'Due Motori · quota delle spese da coprire con la riserva'),
+      hybridPct: number('hybridPct', 'pct', 'Ladder ibrida · quota di ogni spesa da coprire in anticipo'),
       bearReturn: number('bearReturn', 'returnStress', 'Bear · calo del rendimento'),
       bearVol: number('bearVol', 'volatilityStress', 'Bear · aumento volatilità'),
       bullReturn: number('bullReturn', 'returnStress', 'Bull · aumento rendimento'),
       bullVol: number('bullVol', 'volatilityStress', 'Bull · calo volatilità'),
       stressInflation: number('stressInflation', 'stressInflation', 'Stress · extra inflazione'),
       crash: number('crash', 'crash', 'Stress · ribasso una tantum'),
-      paths: number('paths', 'paths', 'Percorsi', true),
-      seed: number('seed', 'seed', 'Seed', true)
+      paths: number('paths', 'paths', 'Numero di percorsi per scenario', true),
+      seed: number('seed', 'seed', 'Codice del campione casuale (seed)', true)
     };
     if (plan.equityReturn - plan.bearReturn <= -100) {
       throw Error('Bear · il rendimento atteso deve essere maggiore di −100%.');
@@ -241,7 +278,7 @@
   }
 
   Object.assign(app, {
-    VERSION, MAX_CHILDREN, LIMITS, STAGES, STAGE_BY_ID, STRATEGIES, SCENARIOS, BANDS, TAX, DISCLAIMER, MONTHS,
+    VERSION, MAX_CHILDREN, LIMITS, STAGES, STAGE_BY_ID, WITHDRAWAL_MODES, WITHDRAWAL_STAGES, STRATEGIES, SCENARIOS, BANDS, TAX, DISCLAIMER, MONTHS,
     todayRome, newParent, newChild, defaultState, schoolDateEligible, validateState, monthlyAmount
   });
 })(globalThis.StudyPlan ??= {});

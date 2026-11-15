@@ -350,8 +350,10 @@
     buffer.losses.sort();
     const first = rows.map((row, index) => ({ year: calendar.rows[index].year, probability: row.firstGap }))
       .filter(row => row.probability > 0).sort((a, b) => b.probability - a.probability)[0] ?? null;
+    const hasWithdrawals = calendar.firstWithdrawal !== null;
     return {
-      rows, success: buffer.successes / n, interval: wilson(buffer.successes, n),
+      rows, success: hasWithdrawals ? buffer.successes / n : null,
+      interval: hasWithdrawals ? wilson(buffer.successes, n) : null,
       loss95: tail(buffer.losses, 0.95), loss99: tail(buffer.losses, 0.99),
       lossMean: buffer.losses.reduce((sum, value) => sum + value, 0) / n,
       final: rows.at(-1).fan, first

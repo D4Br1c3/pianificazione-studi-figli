@@ -111,10 +111,17 @@
       if (group.has(key)) throw Error('Campo duplicato · ' + section + ' / ' + key);
       group.set(key, value);
     }
-    if (groups.get('meta')?.get('versione') !== String(app.VERSION)) throw Error('Versione del CSV non supportata.');
+    const version = groups.get('meta')?.get('versione');
+    if (version !== '1' && version !== String(app.VERSION)) throw Error('Versione del CSV non supportata.');
     const startDate = groups.get('sessione')?.get('startDate');
     if (!startDate) throw Error('Manca la data del piano nel CSV.');
     const defaults = app.defaultState(startDate);
+    if (version === '1') {
+      delete defaults.plan.withdrawalMode;
+      delete defaults.plan.withdrawalYear;
+      delete defaults.plan.withdrawalStage;
+      defaults.plan.scope = 'all';
+    }
     function restore(section, template) {
       const fields = groups.get(section);
       if (!fields) throw Error('Sezione mancante · ' + section);
@@ -138,7 +145,7 @@
     groups.delete('meta');
     groups.delete('sessione');
     const state = {
-      version: app.VERSION, startDate,
+      version: Number(version), startDate,
       plan: restore('piano', defaults.plan),
       view: restore('vista', defaults.view),
       parents: groupList('genitore', app.newParent),
@@ -172,19 +179,24 @@
       'prob_scoperto_pct', 'prob_primo_scoperto_pct', 'saldo_P05', 'saldo_P25', 'saldo_P50', 'saldo_P75', 'saldo_P95',
       'liquidabile_P50', 'ladder_residua_modello', 'prob_successo_pct', 'VaR95_scoperto_euro_oggi',
       'ES95_scoperto_euro_oggi', 'VaR99_scoperto_euro_oggi', 'ES99_scoperto_euro_oggi',
-      'alert_pensione', 'seed', 'percorsi', 'avvertenze'
+      'alert_pensione', 'seed', 'percorsi', 'avvertenze',
+      'avvio_prelievi', 'prima_spesa_del_portafoglio', 'data_riferimento_eta', 'genitori_in_fascia_pensione'
     ];
     for (let index = 0; index < state.parents.length; index++) {
-      for (const key of ['nome', 'eta', 'reddito', 'fascia_67_70']) header.push('genitore' + (index + 1) + '_' + key);
+      for (const key of ['nome', 'eta', 'reddito', 'fascia_67_70', 'data_pensione_ipotizzata']) {
+        header.push('genitore' + (index + 1) + '_' + key);
+      }
     }
     for (let index = 0; index < state.children.length; index++) {
       for (const key of ['nome', 'eta', 'ciclo', 'data_spesa', 'costo_annuo_base', 'costo_annuo_nominale',
-        'lordo_residuo', 'agevolazioni', 'netto_residuo', 'da_reddito', 'fuori_mandato', 'target']) {
+        'lordo_residuo', 'agevolazioni', 'netto_residuo', 'da_reddito', 'fuori_mandato', 'target',
+        'eta_alla_data_di_riferimento', 'ciclo_previsto', 'anno_scolastico_avvio', 'prima_spesa_del_portafoglio']) {
         header.push('figlio' + (index + 1) + '_' + key);
       }
     }
 
     const rows = [header];
+    const dateOrEmpty = day => day === null ? null : app.isoDay(day);
     for (const { id: scenario } of app.SCENARIOS) {
       const calendar = result.calendars[scenario];
       app.STRATEGIES.forEach(({ id: strategy }, strategyIndex) => {
@@ -197,18 +209,26 @@
             year.outside, year.target, year.cumTarget, year.cumTargetReal, index === 0 ? state.plan.lump : 0,
             row.deposit, index === 0 ? result.plans[strategyIndex].invested : 0, row.paid, row.gain, row.tax, row.bollo,
             row.fee, row.gapMean, row.gap50, row.gap95, year.income > 0 ? row.gap95 / year.income * 100 : null,
-            row.gapProbability * 100, row.firstGap * 100, ...row.fan, row.liquid, row.locked, risk.success * 100,
+            row.gapProbability * 100, row.firstGap * 100, ...row.fan, row.liquid, row.locked,
+            risk.success === null ? null : risk.success * 100,
             risk.loss95.var, risk.loss95.es, risk.loss99.var, risk.loss99.es, year.warning,
-            state.plan.seed, state.plan.paths, index === 0 ? app.DISCLAIMER : ''
+            state.plan.seed, state.plan.paths, index === 0 ? app.DISCLAIMER : '',
+            app.withdrawalLabel(state.plan), dateOrEmpty(calendar.firstWithdrawal), app.isoDay(year.reference),
+            year.warning ? year.profiles.flatMap((parent, position) =>
+              parent.pensionWindow ? [state.parents[position].name] : []).join(' / ') : null
           ];
           year.profiles.forEach((parent, position) => {
-            fields.push(state.parents[position].name, parent.age, parent.income, parent.pensionWindow);
+            fields.push(state.parents[position].name, parent.age, parent.income, parent.pensionWindow,
+              dateOrEmpty(parent.retirementInYear));
           });
           year.people.forEach((child, position) => {
+            const student = year.students[position];
+            const withdrawal = calendar.withdrawals[position];
             fields.push(state.children[position].name, child?.age,
               child ? app.STAGE_BY_ID[child.stage].label : null, child ? app.isoDay(child.due) : null,
               child?.fullToday, child?.fullNominal, child?.gross, child?.aid, child?.net,
-              child?.incomePaid, child?.outside, child?.target);
+              child?.incomePaid, child?.outside, child?.target, student.age, app.STAGE_BY_ID[student.stage]?.label,
+              withdrawal.fromYear === null ? null : app.academicLabel(withdrawal.fromYear), dateOrEmpty(withdrawal.firstDue));
           });
           rows.push(fields);
         });

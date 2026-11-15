@@ -1,6 +1,6 @@
 'use strict';
 
-importScripts('state.js', 'calendar.js', 'engine.js');
+importScripts('state.js?v=2', 'calendar.js?v=2', 'engine.js?v=2');
 
 self.addEventListener('message', async ({ data }) => {
   try {

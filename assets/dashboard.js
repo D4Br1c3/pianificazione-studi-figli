@@ -20,9 +20,19 @@
   const empty = text => '<p class="empty">' + escape(text) + '</p>';
   const sum = (items, key) => items.reduce((total, item) => total + item[key], 0);
   const badge = (text, tone = 'neutral') => `<span class="badge ${tone}">${escape(text)}</span>`;
-  const warning = row => row.warning ? badge('Fascia 67–70', row.warning) : '·';
   const strip = (name, value, active = false) => `<div class="strip-item${active ? ' active' : ''}">${escape(name)}<strong>${value}</strong></div>`;
-  const scopeText = plan => plan.scope === 'all' ? 'Tutti i cicli inclusi' : 'Solo università';
+
+  function pensionText(state, row) {
+    if (!row.warning) return '';
+    const names = row.profiles.flatMap((profile, index) => profile.pensionWindow ? [state.parents[index].name] : []);
+    return 'Fascia 67–70 anni · ' + names.join(', ');
+  }
+
+  function retirementText(state, row) {
+    return row.profiles.flatMap((profile, index) => profile.retirementInYear === null ? [] : [
+      'Pensione ipotizzata di ' + state.parents[index].name + ' dal ' + fmtDate(profile.retirementInYear)
+    ]).join(' · ');
+  }
 
   function table(label, headers, rows, tall = false) {
     return `<div class="table-scroll${tall ? ' tall' : ''}" role="region" aria-label="${escape(label)}" tabindex="0">
@@ -31,24 +41,28 @@
         index === 0 ? '<th scope="row">' + value + '</th>' : '<td>' + value + '</td>')).join('')}</tr>`).join('')}</tbody></table></div>`;
   }
 
-  function context(state, prepared, result) {
+  function context(state, result) {
     const { view, plan } = state;
-    const calendar = prepared.calendars[view.scenario];
-    const risk = result?.scenarios[view.scenario][view.strategy];
+    const calendar = result.calendars[view.scenario];
+    const risk = result.scenarios[view.scenario][view.strategy];
     const finalFactor = view.units === 'real' ? 1 / Math.pow(1 + plan.inflation / 100, app.yearsBetween(calendar.start, calendar.end)) : 1;
     return { calendar, risk, finalFactor };
   }
 
-  function renderMetrics(state, prepared, result) {
-    const { calendar, risk } = context(state, prepared, result);
-    const baseCost = sum(prepared.costs, 'full');
+  function renderMetrics(state, result) {
+    const { calendar, risk } = context(state, result);
+    const baseCost = sum(result.costs, 'full');
     const last = calendar.rows.at(-1);
-    $('hero-date').innerHTML = `<span>Data del piano <strong>${fmtDate(calendar.start)}</strong></span><span>Ultima riga <strong>${last.label}</strong></span>`;
+    const start = calendar.firstWithdrawal === null ? 'Nessuna spesa affidata al portafoglio' :
+      'Prima spesa del portafoglio il ' + fmtDate(calendar.firstWithdrawal);
+    $('results-context').textContent = [app.withdrawalLabel(state.plan), start,
+      'Ultimo anno ' + last.label, num(state.plan.paths) + ' percorsi per scenario'].join(' · ');
     const values = [
-      ['Costo netto residuo', euros(calendar.totals.net), 'Nominale · ' + calendar.rows.length + ' anni scolastici'],
-      ['Ladder integrale oggi', euros(baseCost), 'Capitale teorico a pronti · scenario Base'],
-      ['Copertura a ogni scadenza', risk ? pct(risk.success) : '—', strategyName(state.view.strategy) + ' · ' + scenarioName(state.view.scenario)],
-      ['Scoperto ES 95%', risk ? euros(risk.loss95.es) : '—', 'Media del 5% peggiore · euro di oggi']
+      ['Spese nette ancora da pagare', euros(calendar.totals.net), 'Ai prezzi previsti negli anni scolastici'],
+      ['Capitale per la ladder integrale', euros(baseCost), 'Somma teorica necessaria oggi · scenario Base'],
+      ['Probabilità di pagare ogni scadenza', pct(risk.success), risk.success === null ? 'Nessuna spesa del portafoglio' :
+        strategyName(state.view.strategy) + ' · ' + scenarioName(state.view.scenario)],
+      ['Scoperto nel 5% peggiore (ES 95%)', euros(risk.loss95.es), 'Media della coda · euro di oggi']
     ];
     $('metrics').innerHTML = values.map(([name, value, note], index) =>
       `<div class="metric${index === 2 ? ' accent' : ''}"><span class="label">${name}</span><strong>${value}</strong><small>${note}</small></div>`).join('');
@@ -91,7 +105,8 @@
       if (!row.warning) return '';
       const from = Math.max(left, x(index) - step / 2);
       const to = Math.min(width - right, x(index) + step / 2);
-      return `<rect x="${from}" y="${top}" width="${to - from}" height="${height - bottom - top}" fill="${row.warning === 'red' ? '#fae2da' : '#fff0d1'}" />`;
+      return `<rect x="${from}" y="${top}" width="${to - from}" height="${height - bottom - top}" fill="${row.warning === 'red' ? '#fae2da' : '#fff0d1'}">
+        <title>${escape(row.label + ' · ' + pensionText(state, row))}</title></rect>`;
     }).join('');
     const selected = Math.max(0, rows.findIndex(row => row.year === state.view.year));
     const label = 'Cono di Ibbotson, ' + strategyName(state.view.strategy) + ', ' + scenarioName(state.view.scenario);
@@ -107,20 +122,16 @@
       ${print ? '' : `<line data-marker class="fan-marker" x1="${x(selected)}" x2="${x(selected)}" y1="${top}" y2="${height - bottom}"/>`}
       ${ticks}</svg>`;
     const legend = `<div class="legend"><span><i class="key outer"></i>P5–P95</span><span><i class="key inner"></i>P25–P75</span>
-      <span><i class="key median"></i>P50</span>${state.view.cumulative ? '<span><i class="key cost"></i>Target cumulato</span>' : ''}
-      <span><i class="key red"></i><i class="key amber"></i>Fascia 67–70</span><span>${isReal ? 'Euro di oggi' : 'Euro nominali'}</span></div>`;
+      <span><i class="key median"></i>P50 (mediana)</span>${state.view.cumulative ? '<span><i class="key cost"></i>Spese cumulate del portafoglio</span>' : ''}
+      <span><i class="key red"></i><i class="key amber"></i>Fascia 67–70 anni</span><span>${isReal ? 'Euro di oggi' : 'Euro alle date future'}</span></div>`;
     return { svg, legend, data, x, left, step, width, selected };
   }
 
-  function renderFan(state, calendar, risk, busy) {
-    if (!risk) {
-      $('fan').innerHTML = empty(busy ? 'Elaborazione dei percorsi in corso.' : 'Esegui la simulazione per aggiornare il cono e le misure di rischio.');
-      return;
-    }
+  function renderFan(state, calendar, risk) {
     const chart = fanMarkup(state, calendar, risk);
     $('fan').innerHTML = `<div class="chart-shell" tabindex="0" role="region" aria-label="Cono di Ibbotson, scorribile">${chart.svg}</div>
       <div class="chart-meta">${chart.legend}</div><p id="chart-readout" class="chart-readout"></p>
-      <p class="legend-note">La fascia mostra gli esiti a ciascuna data. Il saldo include il valore contabile delle scadenze vincolate. Il target cumulato somma i pagamenti affidati al portafoglio fino a quell’anno, anche se già eseguiti.</p>`;
+      <p class="legend-note">A ogni data, il 90% dei saldi simulati ricade tra P5 e P95. Il saldo include il capitale già destinato alle scadenze della ladder. La linea tratteggiata somma le spese affidate al portafoglio fino a quell’anno.</p>`;
     const svg = $('fan').querySelector('svg');
     const marker = svg.querySelector('[data-marker]');
     let last = -1;
@@ -130,9 +141,10 @@
       const { row, fan, target } = chart.data[index];
       marker.setAttribute('x1', chart.x(index));
       marker.setAttribute('x2', chart.x(index));
+      const pension = pensionText(state, row);
       $('chart-readout').textContent = row.label + ' · P5 ' + euros(fan[0]) + ' · P25 ' + euros(fan[1]) +
         ' · P50 ' + euros(fan[2]) + ' · P75 ' + euros(fan[3]) + ' · P95 ' + euros(fan[4]) +
-        (state.view.cumulative ? ' · Target cumulato ' + euros(target) : '');
+        (state.view.cumulative ? ' · Spese cumulate ' + euros(target) : '') + (pension ? ' · ' + pension : '');
     }
     show(chart.selected);
     svg.addEventListener('pointermove', event => {
@@ -144,9 +156,9 @@
     svg.addEventListener('pointerleave', () => show(chart.selected));
   }
 
-  function renderComparison(state, prepared, result) {
+  function renderComparison(state, result) {
     const { view, plan } = state;
-    const { calendar, finalFactor } = context(state, prepared, result);
+    const { calendar, risk, finalFactor } = context(state, result);
     const market = app.marketSettings(plan, view.scenario);
     const sharpe = app.sharpeMetrics(plan, view.scenario);
     const active = plan.jumps ? sharpe.jumps : sharpe.plain;
@@ -157,53 +169,57 @@
       strip('Rischio annuo del modello', pct(active.risk))
     ];
     const scenario = SCENARIOS.find(item => item.id === view.scenario);
-    const shockDescription = view.scenario === 'shock' && calendar.firstUniversityDue === null ?
-      'Il calendario residuo non contiene rette universitarie. Il ribasso puntuale resta inattivo.' : scenario.description;
+    let shockDescription = scenario.description;
+    if (view.scenario === 'shock') {
+      shockDescription = calendar.firstUniversityDue === null || plan.crash === 0 ? 'Nessun ribasso puntuale previsto.' :
+        'Ribasso del ' + pct(plan.crash / 100) + ' il ' + fmtDate(calendar.firstUniversityDue) + '.';
+    }
     const scenarioInfo = 'Scenario ' + scenario.label + ' · rendimento lordo ' + pct(market.mean) +
       ' · volatilità di base ' + pct(market.sigma) + ' · ' + shockDescription;
-    let comparison = empty('Esegui la simulazione per confrontare strategie, scenari e rischi di coda.');
-    if (result) {
-      const detail = STRATEGIES.map((strategy, index) => {
-        const risk = result.scenarios[view.scenario][strategy.id];
-        return {
-          className: strategy.id === view.strategy ? 'is-current' : '',
-          cells: [`<button class="table-link" type="button" data-strategy="${strategy.id}">${strategy.label}</button>`,
-            pct(risk.success), euros(risk.loss95.var), euros(risk.loss95.es), euros(risk.loss99.var), euros(risk.loss99.es),
-            euros(risk.final[0] * finalFactor), euros(risk.final[2] * finalFactor), euros(prepared.plans[index].invested)]
-        };
-      });
-      const matrix = STRATEGIES.map(strategy => ({
-        cells: [strategy.label, ...SCENARIOS.map(item => pct(result.scenarios[item.id][strategy.id].success))]
-      }));
-      comparison = table('Misure per strategia nello scenario ' + scenario.label, [
-        'Strategia', 'Successo', 'VaR 95', 'ES 95', 'VaR 99', 'ES 99',
-        'Saldo finale P5', 'Saldo finale P50', 'Ladder iniziale'
-      ], detail) +
-      `<p class="hint">VaR ed ES si riferiscono agli scoperti lungo il piano e sono sempre in euro di oggi. Saldo finale ${view.units === 'real' ? 'in euro di oggi' : 'nominale'}. La ladder iniziale è l’importo effettivamente impiegato.</p>
-      <div class="spaced"><h4>Probabilità di coprire tutte le scadenze</h4>${table('Probabilità di successo per scenario', ['Strategia', ...SCENARIOS.map(item => item.label)], matrix)}</div>`;
-    }
+    const detail = STRATEGIES.map((strategy, index) => {
+      const value = result.scenarios[view.scenario][strategy.id];
+      return {
+        className: strategy.id === view.strategy ? 'is-current' : '',
+        cells: [`<button class="table-link" type="button" data-strategy="${strategy.id}">${strategy.label}</button>`,
+          pct(value.success), euros(value.loss95.var), euros(value.loss95.es), euros(value.loss99.var), euros(value.loss99.es),
+          euros(value.final[0] * finalFactor), euros(value.final[2] * finalFactor), euros(result.plans[index].invested)]
+      };
+    });
+    const matrix = STRATEGIES.map(strategy => ({
+      cells: [strategy.label, ...SCENARIOS.map(item => pct(result.scenarios[item.id][strategy.id].success))]
+    }));
 
-    $('comparison').innerHTML = `<div class="panel-head"><div><h3>Confronto delle strategie</h3>
-      <p>${escape(scenarioInfo)}</p></div><span class="badge green">${escape(scopeText(plan))}</span></div>
-      <div class="sharpe-strip">${metrics.join('')}</div><p class="hint">Sharpe dell’asset. I due valori del modello includono il costo ETF / Fondo comune. Nello stress, il ribasso puntuale alla retta si aggiunge ai rendimenti ordinari.</p>
-      <div class="spaced">${comparison}</div>`;
+    $('comparison').innerHTML = `<div class="panel-head"><div><h4>Risultati per lo scenario ${scenario.label}</h4>
+      <p>${escape(scenarioInfo)}</p></div></div>
+      <div class="sharpe-strip">${metrics.join('')}</div>
+      <p class="hint">Lo Sharpe misura il rendimento atteso oltre il tasso privo di rischio per unità di rischio azionario. I due valori del modello includono il costo annuo dell’ETF / Fondo comune. Il ribasso dello stress universitario si aggiunge alla dinamica ordinaria.</p>
+      <div class="spaced">${table('Misure per strategia nello scenario ' + scenario.label, [
+        'Strategia', 'Prob. di copertura', 'VaR 95%', 'ES 95%', 'VaR 99%', 'ES 99%',
+        'Saldo finale P5', 'Saldo finale P50', 'Capitale iniziale nella ladder'
+      ], detail)}</div>
+      <p class="hint">Il VaR 95% indica la soglia che separa il 5% dei percorsi con scoperti maggiori. L’ES 95% è lo scoperto medio in quel 5%. Al 99% si considera l’1% peggiore. VaR ed ES sono in euro di oggi. Il saldo finale è ${view.units === 'real' ? 'in euro di oggi' : 'espresso ai prezzi futuri'}.</p>
+      <div class="spaced"><h4>Probabilità di copertura per scenario</h4>
+      ${table('Probabilità di copertura per scenario', ['Strategia', ...SCENARIOS.map(item => item.label)], matrix)}</div>`;
 
-    const risk = result?.scenarios[view.scenario][view.strategy];
-    const equity = result?.scenarios[view.scenario].equity;
-    const zeroLump = plan.lump === 0 && prepared.costs.length > 0;
-    const info = !risk ? '' :
+    const equity = result.scenarios[view.scenario].equity;
+    const zeroLump = plan.lump === 0 && result.costs.length > 0;
+    const info = risk.interval === null ? '' :
       'Intervallo Monte Carlo al 95% per ' + strategyName(view.strategy) + ' · ' + pct(risk.interval[0]) + ' – ' +
       pct(risk.interval[1]) + '. Con ' + decimal.format(plan.paths) + ' percorsi, l’ES 99 usa circa ' +
       num(plan.paths * 0.01) + ' esiti di coda. L’intervallo misura il rumore del campione.';
-    $('strategy-notes').innerHTML = `<div class="panel-head"><div><h3>Come leggere il confronto</h3>
-      <p>${zeroLump ? 'Capitale iniziale zero. Le due ladder hanno lo stesso esito del PAC azionario.' : 'Tutti i piani usano lo stesso capitale iniziale e gli stessi versamenti.'}</p></div></div>
+    $('strategy-notes').innerHTML = `<div class="panel-head"><div><h4>Copertura e primo scoperto</h4>
+      ${zeroLump ? '<p>Con capitale iniziale zero, le due ladder hanno lo stesso esito del PAC azionario.</p>' : ''}</div></div>
       <div class="strategy-cards">${STRATEGIES.map(strategy => {
-        const item = result?.scenarios[view.scenario][strategy.id];
-        const first = item?.first;
-        const difference = item && strategy.id !== 'equity' ? (item.success - equity.success) * 100 : 0;
+        const item = result.scenarios[view.scenario][strategy.id];
+        const first = item.first;
+        const difference = item.success !== null && equity.success !== null && strategy.id !== 'equity' ?
+          (item.success - equity.success) * 100 : 0;
         const change = Math.abs(difference) >= 0.005 ? ' · ' + (difference > 0 ? '+' : '') + num(difference) + ' punti vs PAC azionario' : '';
-        return `<article class="strategy-card"><h4>${strategy.label}</h4><p>${strategy.text}</p>${item ? `<p><strong>${pct(item.success)}</strong> di successo${change} · ES 95 <strong>${euros(item.loss95.es)}</strong>.</p>
-          <p>${first ? 'Primo scoperto più frequente nel ' + app.academicLabel(first.year) + ' (' + pct(first.probability) + ' dei percorsi).' : 'Il campione copre tutte le scadenze.'}</p>` : ''}</article>`;
+        const outcome = first ? 'Primo scoperto più frequente nel ' + app.academicLabel(first.year) + ' (' +
+          pct(first.probability) + ' dei percorsi).' : 'Il campione copre tutte le scadenze.';
+        return `<article class="strategy-card"><h4>${strategy.label}</h4>${item.success === null ?
+          '<p>Nessuna spesa affidata al portafoglio.</p>' : `<p><strong>${pct(item.success)}</strong> di copertura${change}
+          · ES 95% <strong>${euros(item.loss95.es)}</strong>.</p><p>${outcome}</p>`}</article>`;
       }).join('')}</div>${info ? `<p class="hint spaced">${escape(info)}</p>` : ''}`;
   }
 
@@ -218,8 +234,8 @@
       strip('Ladder integrale · impiegato', euros(ladder.invested)),
       strip('Ladder ibrida · obiettivo oggi', euros(hybrid)),
       strip('Ladder ibrida · impiegato', euros(mixed.invested)),
-      strip('Obiettivo con curva −100 pb', euros(sum(costs, 'down'))),
-      strip('Obiettivo con curva +100 pb', euros(sum(costs, 'up')))
+      strip('Obiettivo con tassi più bassi di 1 punto', euros(sum(costs, 'down'))),
+      strip('Obiettivo con tassi più alti di 1 punto', euros(sum(costs, 'up')))
     ].join('');
     const rows = costs.map((cost, index) => ({ cells: [
       fmtDate(cost.day), num(cost.years), pct(cost.ytm), euros(cost.amount), euros(cost.full),
@@ -227,14 +243,14 @@
       euros(mixed.rungs[index].budget), euros(mixed.rungs[index].maturity)
     ] }));
     $('ladder').innerHTML = `<div class="panel-head"><div><h3>Quanto accantonare oggi</h3><p>
-      Scadenze zero-coupon sintetiche sul fabbisogno Base affidato al portafoglio. Le due ladder acquistano in ordine di scadenza entro il capitale iniziale.
-      </p></div>${badge(state.plan.curve === 'btp' ? 'Curva BTP a gradini' : 'Curva flat')}</div>
+      Il capitale iniziale finanzia incassi alle date delle spese affidate al portafoglio nello scenario Base. Le scadenze più vicine hanno la precedenza.
+      </p></div>${badge(state.plan.curve === 'steps' ? 'Curva a gradini' : 'Tasso costante')}</div>
       <div class="summary-strip">${summary}</div>
       <p class="hint">Capitale aggiuntivo per completare l’obiettivo integrale ${euros(Math.max(0, full - ladder.invested))}.
       Imposta del 12,5% sui guadagni positivi e bollo modellato. La sensibilità applica uno spostamento parallelo prima dell’acquisto.</p>
       <details class="inside-details spaced"${expanded ? ' open' : ''}><summary>Apri le scadenze e gli importi</summary><div class="spaced">
-      ${rows.length ? table('Scadenze della ladder', ['Pagamento', 'Anni', 'YTM lordo', 'Target Base', 'Capitale teorico oggi',
-        'Spesa integrale oggi', 'Incasso integrale', 'Spesa ibrida oggi', 'Incasso ibrida'], rows, true) : empty('Nessun importo da accantonare per il perimetro selezionato.')}
+      ${rows.length ? table('Scadenze della ladder', ['Pagamento', 'Anni alla scadenza', 'Tasso lordo', 'Spesa del portafoglio', 'Capitale teorico oggi',
+        'Capitale impiegato · integrale', 'Incasso · integrale', 'Capitale impiegato · ibrida', 'Incasso · ibrida'], rows, true) : empty('Nessun importo da accantonare per le scadenze selezionate.')}
       </div></details>`;
   }
 
@@ -243,31 +259,40 @@
     const summaries = [
       strip('Netto anno in corso', euros(calendar.rows[0].net)),
       strip('Dal prossimo anno scolastico', euros(calendar.totals.net - calendar.rows[0].net)),
-      strip('Da reddito + fuori mandato', euros(calendar.totals.incomePaid + calendar.totals.outside)),
-      strip('Target complessivo portafoglio', euros(calendar.totals.target), true)
+      strip('Spese assegnate alla famiglia', euros(calendar.totals.incomePaid + calendar.totals.outside)),
+      strip('Spese affidate al portafoglio', euros(calendar.totals.target), true)
     ];
     const years = calendar.rows.map((row, index) => {
-      const gap = risk?.rows[index].gap50 ?? 0;
+      const gap = risk.rows[index].gap50;
       const color = row.warning ? ' has-' + row.warning : '';
+      const selected = index === yearIndex;
+      const pension = pensionText(state, row);
+      const label = [row.label, 'Spesa netta ' + euros(row.net), pension].filter(Boolean).join(' · ');
       const items = [
         ['gap', gap], ['portfolio', Math.max(0, row.target - gap)], ['outside', row.outside], ['income', row.incomePaid]
       ];
-      return `<button class="bar-col${color}${index === yearIndex ? ' is-current' : ''}" type="button" data-year="${row.year}"
-        aria-label="${row.label}, costo netto ${euros(row.net)}${row.warning ? ', fascia pensionistica' : ''}" title="${row.label} · ${euros(row.net)}">
+      return `<button class="bar-col${color}${selected ? ' is-current' : ''}" type="button" data-year="${row.year}"
+        aria-pressed="${selected}" aria-label="${escape(label)}" title="${escape(label)}">
         <span class="stack">${items.map(([name, value]) => `<i class="bar ${name}" style="height:${(value / max * 108).toFixed(2)}px"></i>`).join('')}</span>
         <small>${String(row.year).slice(-2)}</small></button>`;
     });
+    const retirements = calendar.rows.flatMap(row => {
+      const transition = retirementText(state, row);
+      return transition ? [`<li><button class="table-link" type="button" data-year="${row.year}">${row.label}</button>
+        <span>${escape(transition)}</span></li>`] : [];
+    });
     const tableRows = calendar.rows.map((row, index) => {
-      const metrics = risk?.rows[index];
-      const ages = row.profiles.map(profile => profile.age ?? '·').join(' / ');
-      const burden = metrics && row.income > 0 ? metrics.gap95 / row.income : null;
+      const metrics = risk.rows[index];
+      const ages = row.profiles.map((profile, position) => escape(state.parents[position].name) + ' ' + num(profile.age));
+      const burden = row.income > 0 ? metrics.gap95 / row.income : null;
+      const alert = row.warning ? badge(pensionText(state, row), row.warning) : '·';
       return {
         className: row.warning ? 'has-' + row.warning : index === yearIndex ? 'is-current' : '',
         cells: [`<button class="table-link" type="button" data-year="${row.year}">${row.label}</button>`,
-          fmtDate(row.reference), ages, euros(row.today), euros(row.gross), euros(row.aid), euros(row.net),
+          fmtDate(row.reference), ages.join(' / '), euros(row.today), euros(row.gross), euros(row.aid), euros(row.net),
           ...row.people.map(person => person ? euros(person.net) : '·'),
           euros(row.income), pct(row.burden), euros(row.incomePaid), euros(row.outside), euros(row.target), euros(row.cumTarget),
-          metrics ? euros(metrics.gap95) : '·', pct(burden), metrics ? pct(metrics.gapProbability) : '·', warning(row)]
+          euros(metrics.gap95), pct(burden), pct(metrics.gapProbability), alert]
       };
     });
 
@@ -275,77 +300,89 @@
       importi residui dalla data del piano. Seleziona un anno per vedere i singoli figli e il bilancio del portafoglio.</p></div></div>
       <div class="summary-strip">${summaries.join('')}</div>
       <div class="chart-bars" role="group" aria-label="Composizione annuale dei costi">${years.join('')}</div>
-      <div class="legend"><span><i class="key income"></i>Da reddito</span><span><i class="key outside"></i>Fuori mandato</span>
-        <span><i class="key portfolio"></i>${risk ? 'Pagato dal portafoglio · P50' : 'Target portafoglio'}</span>
-        ${risk ? '<span><i class="key gap"></i>Scoperto · P50</span>' : ''}</div>
+      <div class="legend"><span><i class="key income"></i>Da reddito</span><span><i class="key outside"></i>Spese escluse dai prelievi</span>
+        <span><i class="key portfolio"></i>Pagato dal portafoglio · P50</span>
+        <span><i class="key gap"></i>Scoperto · P50</span></div>
+      ${retirements.length ? `<ul class="pension-events">${retirements.join('')}</ul>` : ''}
       <div class="spaced">${table('Flussi per anno scolastico', ['Anno scolastico', 'Data di riferimento', 'Età genitori',
-        'Costo base residuo', 'Lordo nominale', 'Agevolazioni', 'Netto nominale', ...state.children.map(child => child.name),
-        'Reddito annuo', 'Netto / reddito', 'Da reddito', 'Fuori mandato', 'Target portafoglio', 'Target cumulato',
-        'Scoperto P95', 'P95 / reddito', 'Prob. scoperto', 'Pensione'], tableRows, true)}</div>
-      <p class="hint spaced">La fascia 67–70 evidenzia spese in anni scolastici che toccano la finestra anagrafica di un genitore. Rosso con università, reddito zero o costo netto pari almeno al 25% del reddito. N.D. indica un rapporto con denominatore pari a zero o una misura ancora da simulare.</p>`;
+        'Costo residuo ai prezzi di oggi', 'Costo lordo previsto', 'Agevolazioni', 'Spesa netta prevista', ...state.children.map(child => 'Spesa netta · ' + child.name),
+        'Reddito annuo', 'Spesa netta / reddito', 'Pagato direttamente dal reddito', 'Spese escluse dai prelievi', 'Da finanziare con il portafoglio', 'Spese cumulate del portafoglio',
+        'Scoperto P95', 'Scoperto P95 / reddito', 'Prob. di scoperto', 'Genitori in fascia 67–70'], tableRows, true)}</div>
+      <p class="hint spaced">L’alert indica che l’anno scolastico comprende un periodo nella fascia 67–70. È rosso con spese universitarie, reddito zero o spesa netta pari almeno al 25% del reddito. Le età sono riferite alla data indicata nella riga.</p>`;
   }
 
   function renderYear(state, calendar, risk, index) {
     const row = calendar.rows[index];
-    const outcome = risk?.rows[index];
-    const gapBurden = outcome && row.income > 0 ? (row.incomePaid + row.outside + outcome.deposit + outcome.gap95) / row.income : null;
+    const outcome = risk.rows[index];
+    const gapBurden = row.income > 0 ? (row.incomePaid + row.outside + outcome.deposit + outcome.gap95) / row.income : null;
+    const transition = retirementText(state, row);
+    const pension = pensionText(state, row);
     const parents = row.profiles.map((profile, position) => ({ cells: [
       escape(state.parents[position].name), num(profile.age), euros(profile.income),
       profile.pensionWindow ? badge('67–70', row.warning || 'amber') : '·',
-      profile.adjusted ? badge('Attivo') : '·'
+      profile.retirementInYear !== null ? fmtDate(profile.retirementInYear) : '·',
+      profile.adjusted ? pct(state.parents[position].replacement / 100) : '·'
     ] }));
-    const children = row.people.map((child, position) => ({ cells: [
-      escape(state.children[position].name), child ? STAGE_BY_ID[child.stage].label : '·',
-      child ? num(child.age) : '·', child ? fmtDate(child.due) : '·',
-      child ? euros(child.fullToday) : '·', child ? euros(child.fullNominal) : '·',
-      child ? euros(child.gross) : '·', child ? euros(child.aid) : '·', child ? euros(child.net) : '·',
-      child ? euros(child.incomePaid + child.outside) : '·', child ? euros(child.target) : '·'
-    ] }));
-    const financial = outcome ? [
-      strip('PAC lordo nel periodo', euros(outcome.deposit)),
+    const children = row.people.map((child, position) => {
+      const student = row.students[position];
+      return { cells: [
+        escape(state.children[position].name), student.age === null ? 'Nascita futura' : num(student.age),
+        STAGE_BY_ID[student.stage]?.label ?? '·', child ? fmtDate(child.due) : '·',
+        child ? euros(child.fullToday) : '·', child ? euros(child.fullNominal) : '·',
+        child ? euros(child.gross) : '·', child ? euros(child.aid) : '·', child ? euros(child.net) : '·',
+        child ? euros(child.incomePaid + child.outside) : '·', child ? euros(child.target) : '·'
+      ] };
+    });
+    const financial = [
+      strip('Versamenti PAC nel periodo', euros(outcome.deposit)),
       strip('Pagato dal portafoglio · media', euros(outcome.paid)),
       strip('Risultato di gestione · media', euros(outcome.gain)),
       strip('Imposte, bollo e costi liquidi · media', euros(outcome.tax + outcome.bollo + outcome.fee)),
       strip('Scoperto P50 / P95', euros(outcome.gap50) + ' / ' + euros(outcome.gap95)),
       strip('Probabilità del primo scoperto', pct(outcome.firstGap)),
       strip('Saldo netto P50', euros(outcome.fan[2])),
-      strip('Liquidabile P50', euros(outcome.liquid)),
-      strip('Impegno famiglia con scoperto P95', pct(gapBurden), gapBurden > 0.5)
-    ].join('') : '';
+      strip('Capitale liquidabile P50', euros(outcome.liquid)),
+      strip('Quota del reddito impegnata con scoperto P95', pct(gapBurden), gapBurden > 0.5)
+    ].join('');
     $('year-detail').innerHTML = `<div class="panel-head"><div><h3 id="year-heading" tabindex="-1">Dettaglio ${row.label}</h3>
-      <p>Situazione al ${fmtDate(row.report)} · ${strategyName(state.view.strategy)} · ${scenarioName(state.view.scenario)}</p></div>
+      <p>Età e reddito al ${fmtDate(row.reference)} · Saldo al ${fmtDate(row.report)}</p></div>
       <label class="field">Anno scolastico<select data-view="year">${calendar.rows.map(candidate =>
         `<option value="${candidate.year}"${candidate.year === row.year ? ' selected' : ''}>${candidate.label}</option>`).join('')}</select></label></div>
-      ${financial ? `<div class="summary-strip">${financial}</div>
-        <p class="hint">Impegno famiglia = quota da reddito + costi fuori mandato + rate PAC + scoperto P95, divisi per il reddito annuo netto.
-        Il capitale iniziale è separato. Il risultato di gestione include l’accrescimento netto della ladder.</p>` : ''}
-      <div class="subtables"><div><h4>Genitori</h4>${table('Redditi e fasce per genitore', ['Nome', 'Età alla data di riferimento', 'Reddito annuo', 'Fascia', 'Cambio reddito'], parents)}</div>
-      <div><h4>Figli</h4>${children.length ? table('Spese per figlio', ['Nome', 'Ciclo', 'Età', 'Pagamento',
-        'Costo annuo base', 'Costo annuo nominale', 'Lordo residuo', 'Aiuti', 'Netto residuo', 'Da famiglia', 'Target portafoglio'], children) :
+      ${pension ? `<p>${badge(pension, row.warning)}</p>` : ''}
+      ${transition ? `<p class="setting-note">${escape(transition)}.</p>` : ''}
+      <div class="subtables"><div><h4>Genitori</h4>${table('Età, redditi e pensione per genitore', [
+        'Nome', 'Età', 'Reddito netto annuo', 'Fascia nell’anno', 'Data di pensione ipotizzata', 'Quota sostitutiva già applicata'
+      ], parents)}</div>
+      <div><h4>Figli</h4>${children.length ? table('Età e spese per figlio', ['Nome', 'Età', 'Ciclo previsto', 'Data di pagamento',
+        'Costo annuo ai prezzi di oggi', 'Costo annuo previsto', 'Lordo residuo', 'Agevolazioni', 'Netto residuo', 'Da pagare in famiglia', 'Da finanziare con il portafoglio'], children) :
         empty('Aggiungi un figlio per costruire il calendario delle spese.')}</div></div>`;
+    $('year-detail').insertAdjacentHTML('beforeend', `<h4 class="spaced">Portafoglio · ${strategyName(state.view.strategy)} · ${scenarioName(state.view.scenario)}</h4>
+      <div class="summary-strip">${financial}</div>
+      <p class="hint">Per stimare l’impegno sul reddito si sommano le spese da pagare in famiglia, le rate PAC e lo scoperto P95. Il risultato si divide per il reddito netto annuo. Il capitale iniziale è riportato a parte.</p>`);
   }
 
-  function renderDashboard(state, prepared, result, busy = false) {
-    const { calendar, risk } = context(state, prepared, result);
+  function renderDashboard(state, result) {
+    const { calendar, risk } = context(state, result);
     const selected = calendar.rows.findIndex(row => row.year === state.view.year);
     const index = selected < 0 ? 0 : selected;
-    renderMetrics(state, prepared, result);
-    renderFan(state, calendar, risk, busy);
-    renderComparison(state, prepared, result);
-    renderLadder(state, prepared);
+    renderMetrics(state, result);
+    renderFan(state, calendar, risk);
+    renderComparison(state, result);
+    renderLadder(state, result);
     renderCash(state, calendar, risk, index);
     renderYear(state, calendar, risk, index);
   }
 
   function report(state, result) {
-    const { calendar, risk, finalFactor } = context(state, result, result);
+    const { calendar, risk, finalFactor } = context(state, result);
     const { plan, view } = state;
     const chart = fanMarkup(state, calendar, risk, true);
     const highest = [...calendar.rows.keys()].filter(index => calendar.rows[index].net > 0)
       .sort((a, b) => calendar.rows[b].net - calendar.rows[a].net).slice(0, 3);
     const priority = highest.map(index => {
       const row = calendar.rows[index];
-      return { cells: [row.label, euros(row.net), pct(row.burden), euros(risk.rows[index].gap95), row.warning ? '67–70' : '·'] };
+      return { cells: [row.label, euros(row.net), pct(row.burden), euros(risk.rows[index].gap95),
+        escape(pensionText(state, row) || retirementText(state, row) || '·')] };
     });
     const comparison = STRATEGIES.map(strategy => {
       const value = result.scenarios[view.scenario][strategy.id];
@@ -354,10 +391,11 @@
     });
     $('print-report').innerHTML = `<span class="eyebrow">PIANO STUDI · SCHEDA ESECUTIVA</span>
       <h1>Pianificazione studi figli</h1>
-      <p>${fmtDate(calendar.start)} · ${strategyName(view.strategy)} · ${scenarioName(view.scenario)} · ${scopeText(plan)}</p>
+      <p>${fmtDate(calendar.start)} · ${strategyName(view.strategy)} · ${scenarioName(view.scenario)} · ${app.withdrawalLabel(plan)}</p>
       <div class="summary-strip">${[
-        strip('Spese nette residue', euros(calendar.totals.net)), strip('Ladder Base oggi', euros(sum(result.costs, 'full'))),
-        strip('Successo', pct(risk.success)), strip('ES 95% · euro di oggi', euros(risk.loss95.es))
+        strip('Spese nette residue', euros(calendar.totals.net)),
+        strip('Prima spesa del portafoglio', calendar.firstWithdrawal === null ? 'Nessuna spesa' : fmtDate(calendar.firstWithdrawal)),
+        strip('Probabilità di copertura', pct(risk.success)), strip('ES 95% · euro di oggi', euros(risk.loss95.es))
       ].join('')}</div>
       <h2>Capitale dopo i pagamenti</h2>${chart.svg}${chart.legend}
       <h2>Strategie nello scenario ${scenarioName(view.scenario)}</h2>
